@@ -1,0 +1,13 @@
+{
+    "DISCORD_TOKEN": "DISCORD_YOUR_TOKEN",
+    "MUTE_ROLE_ID": your_role_id,
+    "YOUR_ADMIN_ROLE_ID": your_role_id,
+    "NOTIFICATION_CHANNEL_ID": your_notification_channel_id,
+    "YOUTUBE_API_KEYS": [
+        "YOUR_API_KEY_1", 
+        "YOUR_API_KEY_2",
+        "YOUR_API_KEY_3"
+    ],
+    "YOUTUBE_CHANNEL_ID_1": "YOUR_CHANNEL_ID_1",
+    "YOUTUBE_CHANNEL_ID_2": "YOUR_CHANNEL_ID_2"
+}
