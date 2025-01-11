@@ -582,11 +582,10 @@ async def getvideosid(ctx):
             break
         except googleapiclient.errors.HttpError as e:
             if e.resp.status == 403 and 'quotaExceeded' in str(e):
-                await ctx.send(f"Quota exceeded for API key: {api_key}. Trying next key...")
                 logging.warning(f"Quota exceeded for API key: {api_key}")
             else:
-                await ctx.send(f"An error occurred: {e}")
-                logging.error(f"An error occurred: {e}")
+                await ctx.send(f"An error occurred! Check admin console for more information!")
+                logging.error(f"An error occurred (getvideosid): {e}")
                 raise e
 
 async def check_youtube_channels_manual(ctx):
@@ -639,11 +638,10 @@ async def check_youtube_channels_manual(ctx):
             break  # Exit the loop if the request was successful
         except googleapiclient.errors.HttpError as e:
             if e.resp.status == 403 and 'quotaExceeded' in str(e):
-                await ctx.send(f"Quota exceeded for API key: {api_key}. Trying next key...")
                 logging.warning(f"Quota exceeded for API key: {api_key}")
             else:
-                await ctx.send(f"An error occurred: {e}")
-                logging.error(f"An error occurred: {e}")
+                await ctx.send(f"An error occurred! Check admin console for more information!")
+                logging.error(f"An error occurred (check_youtube_channels_manual): {e}")
                 raise e
 
 
