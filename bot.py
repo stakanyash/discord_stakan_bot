@@ -30,6 +30,8 @@ intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+bot.remove_command('help')
+
 bomb_info = {}
 
 # Загрузка конфигурации из файла
@@ -160,6 +162,18 @@ async def on_ready():
     logging.info(f'Logged in as {bot.user}')
     check_mutes.start()
 
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    if isinstance(message.channel, discord.DMChannel):
+        response = ("Данный бот может работать только на сервере \"стакан\". "
+                    "Взаимодействие через личные сообщения не предусмотрено.")
+        await message.author.send(response)
+
+    await bot.process_commands(message)
+
 @bot.command()
 @commands.has_permissions(manage_messages=True)
 async def mute(ctx, member: discord.Member, duration: str, *, reason: str = "Не указано"):
@@ -243,7 +257,7 @@ async def рулетка(ctx):
         await ctx.reply("**·щёлк·**\nФартовый однако! 🤔")
         logging.info(f"{ctx.author.id} won the roulette")
 
-@bot.command()
+@bot.command(name='help', aliases=['помощь'])
 async def помощь(ctx):
     help_message = (
         "**Здарова, салаги!**\n"
@@ -251,23 +265,23 @@ async def помощь(ctx):
         "\n"
         "Доступные команды:\n"
         "\n"
-        "- `!MrCarsen` - содержит все так называемые 'Цытаты виликих' из модификаций данного товарища.\n"
+        "- `!MrCarsen` - содержит все так называемые \"Цытаты виликих\" из модификаций данного товарища.\n"
         "\n"
         "- `!золотойфонд` - выдаёт случайное сообщение из золотого фонда.\n"
         "\n"
         "- `!неумничай` - если кто-то слишком сильно умничает. В ответ на неё бот пошлёт вас на три буквы.\n"
-        "Однако вы можете ответить ему командой `!аможетбытьты`, получив в ответ 'КТО?! Я?!'.\n"
+        "Однако вы можете ответить ему командой `!аможетбытьты`, получив в ответ \"КТО?! Я?!\".\n"
         "Написав команду `!ХУЯБЛЯ` бот включает режим Глада Валакаса и отправляет вас в бан. На целую минуту.\n"
         "\n"
         "- `!пошёлтынахуй` - позволяет послать собеседника куда подальше, но бот воспримет это на свой счёт, учтите.\n"
         "||на самом деле ничего не будет и он просто спросит за что вы так с ним||\n"
         "\n"
-        "- `!рулетка` - своеобразная 'Русская рулетка'. Либо жив, либо умер. В случае 'смерти' получаете мьют на минуту.\n"
+        "- `!рулетка` - своеобразная 'Русская рулетка'. Либо жив, либо умер. В случае \"смерти\" получаете мьют на минуту.\n"
         "\n"
         "- `!bomb` - своеобразная бомба. Участникам чата даётся 1 час на её разминирование. Если никто не успеет - все участники чата получают мьют на 1 час.\n"
         "Команду можно использовать 1 раз в 7 дней.\n"
         "\n"
-        "- `!defuse` - разминирование запущенной 'бомбы'. После команды нужно ввести ваш вариант в виде 4-ёх числового кода.\n"
+        "- `!defuse` - разминирование запущенной \"бомбы\". После команды нужно ввести ваш вариант в виде 4-ёх числового кода.\n"
         "Пример: `!defuse 1432`\n"
         "\n"
         "В будущем планируется расширение функционала по части команд, так что следите за обновлениями!"
@@ -535,14 +549,45 @@ def get_youtube_service(api_key):
 @bot.command()
 @commands.has_permissions(manage_messages=True)
 async def getvideosid(ctx):
-    channel_ids = [YOUTUBE_CHANNEL_ID_1, YOUTUBE_CHANNEL_ID_2]
-    for channel_id in channel_ids:
-        last_video_id = get_last_video_id(channel_id)
-        if last_video_id:
-            logging.info(f"Last video ID for channel {channel_id}: {last_video_id}")
-        else:
-            logging.info(f"No video ID found for channel {channel_id}")
-    await ctx.send("Video IDs have been logged.")
+    for api_key in YOUTUBE_API_KEYS:
+        youtube = get_youtube_service(api_key)
+        try:
+            request = youtube.search().list(
+                part="snippet",
+                channelId=YOUTUBE_CHANNEL_ID_1,
+                order="date",
+                maxResults=1
+            )
+            response = request.execute()
+            if 'items' in response and len(response['items']) > 0:
+                video_id = response['items'][0]['id']['videoId']
+                last_video_id = get_last_video_id(YOUTUBE_CHANNEL_ID_1)
+                if video_id != last_video_id:
+                    logging.info(f"Last video ID for channel 1: {last_video_id}")
+                    set_last_video_id(YOUTUBE_CHANNEL_ID_1, video_id)
+
+            request = youtube.search().list(
+                part="snippet",
+                channelId=YOUTUBE_CHANNEL_ID_2,
+                order="date",
+                maxResults=1
+            )
+            response = request.execute()
+            if 'items' in response and len(response['items']) > 0:
+                video_id = response['items'][0]['id']['videoId']
+                last_video_id = get_last_video_id(YOUTUBE_CHANNEL_ID_2)
+                if video_id != last_video_id:
+                    logging.info(f"Last video ID for channel 2: {last_video_id}")
+                    set_last_video_id(YOUTUBE_CHANNEL_ID_2, video_id)
+            break
+        except googleapiclient.errors.HttpError as e:
+            if e.resp.status == 403 and 'quotaExceeded' in str(e):
+                await ctx.send(f"Quota exceeded for API key: {api_key}. Trying next key...")
+                logging.warning(f"Quota exceeded for API key: {api_key}")
+            else:
+                await ctx.send(f"An error occurred: {e}")
+                logging.error(f"An error occurred: {e}")
+                raise e
 
 async def check_youtube_channels_manual(ctx):
     channel = bot.get_channel(NOTIFICATION_CHANNEL_ID)
