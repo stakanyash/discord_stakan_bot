@@ -7,13 +7,12 @@ import random
 import googleapiclient.discovery
 import googleapiclient.errors
 import json
-import os
 import logging
 import sqlite3
 from randomlist import mr_carsen_messages, gold_fund_messages
 
 log_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-log_filename = f"bot_{log_timestamp}.log"
+log_filename = f"stakandiscordbot_{log_timestamp}.log"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,6 +44,9 @@ NOTIFICATION_CHANNEL_ID = config['NOTIFICATION_CHANNEL_ID']
 YOUTUBE_API_KEYS = config['YOUTUBE_API_KEYS']
 YOUTUBE_CHANNEL_ID_1 = config['YOUTUBE_CHANNEL_ID_1']
 YOUTUBE_CHANNEL_ID_2 = config['YOUTUBE_CHANNEL_ID_2']
+LOG_CHANNEL_ID = config['LOG_CHANNEL_ID']
+YT_SUBSCRIBER_ROLE_ID = config['YT_SUBSCRIBER_ROLE_ID']
+SEC_YT_SUBSCRIBER_ROLE_ID = config['SEC_YT_SUBSCRIBER_ROLE_ID']
 
 # Создание таблиц в базе данных
 def create_tables():
@@ -67,6 +69,10 @@ def create_tables():
     c.execute('''CREATE TABLE IF NOT EXISTS last_video_ids (
                   channel_id TEXT PRIMARY KEY,
                   video_id TEXT
+               )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS role_users (
+                  user_id INTEGER PRIMARY KEY,
+                  role_id INTEGER
                )''')
     conn.commit()
     conn.close()
@@ -157,11 +163,21 @@ def set_last_video_id(channel_id, video_id):
     conn.commit()
     conn.close()
 
+def get_role_users(role_id):
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM role_users WHERE role_id = ?", (role_id,))
+    users = c.fetchall()
+    conn.close()
+    return [user[0] for user in users]
+
+# Функция после запуска
 @bot.event
 async def on_ready():
     logging.info(f'Logged in as {bot.user}')
     check_mutes.start()
 
+# Функция ответа на сообщения в ЛС
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
@@ -173,6 +189,71 @@ async def on_message(message):
         await message.author.send(response)
 
     await bot.process_commands(message)
+
+# Функции для отслеживания действий (присоединение/выход с сервера, войса, обновление ролей, вход/выход с войс-чатов)
+async def send_log_message(message):
+    channel = bot.get_channel(LOG_CHANNEL_ID)
+    if channel:
+        message_parts = [message[i:i+4000] for i in range(0, len(message), 4000)]
+        for part in message_parts:
+            await channel.send(part)
+    else:
+        logging.error(f"Log channel with ID {LOG_CHANNEL_ID} not found.")
+
+@bot.event
+async def on_member_update(before, after):
+    if before.roles != after.roles:
+        added_roles = [role for role in after.roles if role not in before.roles]
+        removed_roles = [role for role in before.roles if role not in after.roles]
+        if added_roles:
+            message = f"Roles added to {after.name}: {', '.join([role.name for role in added_roles])}"
+            await send_log_message(message)
+            logging.info(message)
+        if removed_roles:
+            message = f"Roles removed from {after.name}: {', '.join([role.name for role in removed_roles])}"
+            await send_log_message(message)
+            logging.info(message)
+
+@bot.event
+async def on_member_join(member):
+    message = f"{member.name} has joined the server."
+    await send_log_message(message)
+    logging.info(message)
+
+@bot.event
+async def on_member_remove(member):
+    message = f"{member.name} has left the server."
+    await send_log_message(message)
+    logging.info(message)
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    if before.channel != after.channel:
+        if before.channel is None:
+            message = f"{member.name} has joined the voice channel {after.channel.name}."
+            await send_log_message(message)
+            logging.info(message)
+        elif after.channel is None:
+            message = f"{member.name} has left the voice channel {before.channel.name}."
+            await send_log_message(message)
+            logging.info(message)
+        else:
+            message = f"{member.name} has moved from {before.channel.name} to {after.channel.name}."
+            await send_log_message(message)
+            logging.info(message)
+
+@bot.event
+async def on_message_edit(before, after):
+    if before.content != after.content:
+        message = f"Message edited by {after.author.name} in {after.channel.name}:\nBefore: {before.content}\nAfter: {after.content}"
+        await send_log_message(message)
+        logging.info(message)
+
+@bot.event
+async def on_message_delete(message):
+    message_content = f"Message deleted by {message.author.name} in {message.channel.name}:\n{message.content}"
+    await send_log_message(message_content)
+    logging.info(message_content)
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
@@ -209,6 +290,7 @@ async def unmute(ctx, member: discord.Member):
         await ctx.send(f'{member.mention} не замьючен.')
         logging.warning(f"{member.id} is not muted")
 
+#Custom commands
 @bot.command()
 async def MrCarsen(ctx):
     message = random.choice(mr_carsen_messages)
@@ -299,6 +381,7 @@ async def ХУЯБЛЯ(ctx):
         await ctx.author.remove_roles(role, reason="Время мьюта истекло")
     logging.info(f"{ctx.author.id} triggered the ХУЯБЛЯ command and was muted for 1 minute")
 
+#Bomb command
 @bot.command()
 @commands.has_permissions(manage_messages=True)
 async def mute_all(ctx, *, reason=None):
@@ -422,6 +505,92 @@ async def defuse(ctx, guess: int):
             await ctx.send("Неверно! Попробуйте ещё раз!")
     else:
         await ctx.send("No bomb has been planted.")
+
+#Subscribe roles
+class SubscribeView(View):
+    def __init__(self, ctx, role_id):
+        super().__init__(timeout=None)
+        self.ctx = ctx
+        self.role_id = role_id
+
+    @discord.ui.button(label="Получить роль", style=discord.ButtonStyle.green)
+    async def add_role(self, interaction: discord.Interaction, button: Button):
+        await self.update_role(interaction, add=True)
+
+    @discord.ui.button(label="Отказаться от роли", style=discord.ButtonStyle.red)
+    async def remove_role(self, interaction: discord.Interaction, button: Button):
+        await self.update_role(interaction, add=False)
+
+    async def update_role(self, interaction: discord.Interaction, add: bool):
+        role = discord.utils.get(interaction.guild.roles, id=self.role_id)
+        user_id = interaction.user.id
+
+        if add:
+            if role not in interaction.user.roles:
+                await interaction.user.add_roles(role)
+                self.add_user_to_db(user_id, self.role_id)
+                await interaction.response.send_message(f"Вы получили роль {role.name}.", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"Вы уже имеете роль {role.name}.", ephemeral=True)
+        else:
+            if role in interaction.user.roles:
+                await interaction.user.remove_roles(role)
+                self.remove_user_from_db(user_id)
+                await interaction.response.send_message(f"Вы отказались от роли {role.name}.", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"У вас нет роли {role.name}.", ephemeral=True)
+
+    def add_user_to_db(self, user_id, role_id):
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("INSERT OR REPLACE INTO role_users (user_id, role_id) VALUES (?, ?)", (user_id, role_id))
+        conn.commit()
+        conn.close()
+
+    def remove_user_from_db(self, user_id):
+        conn = sqlite3.connect('bot_data.db')
+        c = conn.cursor()
+        c.execute("DELETE FROM role_users WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def subscribe(ctx):
+    role_id = YT_SUBSCRIBER_ROLE_ID
+    role = discord.utils.get(ctx.guild.roles, id=role_id)
+
+    if not role:
+        await ctx.send("Роль не найдена. Убедитесь, что ID роли указан корректно.")
+        return
+
+    view = SubscribeView(ctx, role_id)
+    embed = discord.Embed(
+        title=f"Подписка на роль {role.name}",
+        description=f"Чтобы получать уведомления о новом контенте на YouTube-канале можно получить роль {role.name}. Выберите действие ниже."
+    )
+    message = await ctx.send(embed=embed, view=view)
+    view.message = message
+
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def subscribesecond(ctx):
+    role_id = SEC_YT_SUBSCRIBER_ROLE_ID
+    role = discord.utils.get(ctx.guild.roles, id=role_id)
+
+    if not role:
+        await ctx.send("Роль не найдена. Убедитесь, что ID роли указан корректно.")
+        return
+
+    view = SubscribeView(ctx, role_id)
+    embed = discord.Embed(
+        title=f"Подписка на роль {role.name}",
+        description=f"Чтобы получать уведомления о новом контенте на втором YouTube-канале можно получить роль {role.name}. Выберите действие ниже."
+    )
+    message = await ctx.send(embed=embed, view=view)
+    view.message = message
+
+# Admin commands
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
