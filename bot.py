@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 import random
 import googleapiclient.discovery
 import googleapiclient.errors
-import json
+from dotenv import load_dotenv
+import os
 import logging
 import sqlite3
 from randomlist import mr_carsen_messages, gold_fund_messages
@@ -33,20 +34,18 @@ bot.remove_command('help')
 
 bomb_info = {}
 
-# Загрузка конфигурации из файла
-with open('config.json', 'r') as file:
-    config = json.load(file)
+load_dotenv()
 
-DISCORD_TOKEN = config['DISCORD_TOKEN']
-MUTE_ROLE_ID = config['MUTE_ROLE_ID']
-YOUR_ADMIN_ROLE_ID = config['YOUR_ADMIN_ROLE_ID']
-NOTIFICATION_CHANNEL_ID = config['NOTIFICATION_CHANNEL_ID']
-YOUTUBE_API_KEYS = config['YOUTUBE_API_KEYS']
-YOUTUBE_CHANNEL_ID_1 = config['YOUTUBE_CHANNEL_ID_1']
-YOUTUBE_CHANNEL_ID_2 = config['YOUTUBE_CHANNEL_ID_2']
-LOG_CHANNEL_ID = config['LOG_CHANNEL_ID']
-YT_SUBSCRIBER_ROLE_ID = config['YT_SUBSCRIBER_ROLE_ID']
-SEC_YT_SUBSCRIBER_ROLE_ID = config['SEC_YT_SUBSCRIBER_ROLE_ID']
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+MUTE_ROLE_ID = int(os.getenv("MUTE_ROLE_ID"))
+YOUR_ADMIN_ROLE_ID = int(os.getenv("YOUR_ADMIN_ROLE_ID"))
+NOTIFICATION_CHANNEL_ID = int(os.getenv("NOTIFICATION_CHANNEL_ID"))
+YOUTUBE_API_KEYS = [key.strip('"') for key in os.getenv("YOUTUBE_API_KEYS").split(',')]
+YOUTUBE_CHANNEL_ID_1 = os.getenv("YOUTUBE_CHANNEL_ID_1")
+YOUTUBE_CHANNEL_ID_2 = os.getenv("YOUTUBE_CHANNEL_ID_2")
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
+YT_SUBSCRIBER_ROLE_ID = int(os.getenv("YT_SUBSCRIBER_ROLE_ID"))
+SEC_YT_SUBSCRIBER_ROLE_ID = int(os.getenv("SEC_YT_SUBSCRIBER_ROLE_ID"))
 
 # Создание таблиц в базе данных
 def create_tables():
