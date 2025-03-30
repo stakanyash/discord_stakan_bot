@@ -52,12 +52,10 @@ TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 TWITCH_CHANNEL_ID = int(os.getenv("TWITCH_CHANNEL_ID"))
 USER_ID = int(os.getenv("USER_ID"))
 
-# Создание таблиц в базе данных
 def create_tables():
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
 
-    # Создание таблиц, если они не существуют
     c.execute('''CREATE TABLE IF NOT EXISTS warnings (
                   user_id INTEGER,
                   timestamp TEXT,
@@ -98,7 +96,6 @@ def create_tables():
 
 create_tables()
 
-# Функции для работы с базой данных
 def get_warnings(user_id):
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
@@ -212,7 +209,6 @@ def remove_active_stream(channel_id):
     conn.commit()
     conn.close()
 
-# Функция для получения токена доступа Twitch
 def get_twitch_access_token(client_id, client_secret):
     url = 'https://id.twitch.tv/oauth2/token'
     params = {
@@ -224,7 +220,6 @@ def get_twitch_access_token(client_id, client_secret):
     response.raise_for_status()
     return response.json()['access_token']
 
-# Функция для отправки сообщения в ЛС
 async def send_dm_notification(user, ctx, role_id_1, role_id_2, stream_url):
     view = RoleSelectionView(ctx, role_id_1, role_id_2, stream_url)
     message = await user.send(
@@ -233,7 +228,6 @@ async def send_dm_notification(user, ctx, role_id_1, role_id_2, stream_url):
     )
     view.message = message
 
-# Класс для кнопок выбора роли
 class RoleSelectionView(View):
     def __init__(self, ctx, role_id_1, role_id_2, stream_url):
         super().__init__(timeout=30)
@@ -268,7 +262,6 @@ class RoleSelectionView(View):
         if self.message:
             await self.message.delete()
 
-# Функция для проверки активных трансляций на Twitch
 async def check_twitch_streams(ctx, client_id, client_secret, twitch_channel_id, notification_channel_id, user_id):
     token = get_twitch_access_token(client_id, client_secret)
     headers = {
@@ -315,14 +308,16 @@ async def check_twitch_streams_task():
     ctx = None
     await check_twitch_streams(ctx, TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL_ID, NOTIFICATION_CHANNEL_ID, USER_ID)
 
-# Функция после запуска
 @bot.event
 async def on_ready():
     logging.info(f'Logged in as {bot.user}')
-    check_mutes.start()
-    check_twitch_streams_task.start()
 
-# Функция ответа на сообщения в ЛС
+    bot.add_view(SubscribeView(YT_SUBSCRIBER_ROLE_ID))
+    bot.add_view(SubscribeView(SEC_YT_SUBSCRIBER_ROLE_ID))
+    
+    check_mutes.start()
+#   check_twitch_streams_task.start()
+
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
@@ -335,7 +330,6 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# Функции для отслеживания действий (присоединение/выход с сервера, войса, обновление ролей, вход/выход с войс-чатов)
 async def send_log_message(message):
     channel = bot.get_channel(LOG_CHANNEL_ID)
     if channel:
@@ -390,16 +384,16 @@ async def on_voice_state_update(member, before, after):
 @bot.event
 async def on_message_edit(before, after):
     if before.content != after.content:
-        message = f"Message edited by {after.author.name} in {after.channel.name}:\nBefore: {before.content}\nAfter: {after.content}"
+        message = f"Message edited by {after.author.name} in {after.channel.name}:\n\nBefore: {before.content}\n\nAfter: {after.content}"
         await send_log_message(message)
         logging.info(message)
 
 @bot.event
 async def on_message_delete(message):
     if isinstance(message.channel, discord.DMChannel):
-        message_content = f"Message deleted by {message.author.name} in DM:\n{message.content}"
+        message_content = f"Message deleted by {message.author.name} in DM:\n\n{message.content}"
     else:
-        message_content = f"Message deleted by {message.author.name} in {message.channel.name}:\n{message.content}"
+        message_content = f"Message deleted by {message.author.name} in {message.channel.name}:\n\n{message.content}"
 
     await send_log_message(message_content)
     logging.info(message_content)
@@ -413,7 +407,6 @@ async def mute(ctx, member: discord.Member, duration: str, *, reason: str = "Н�
         logging.warning(f"Mute role not found for guild {ctx.guild.id}")
         return
 
-    # Парсинг длительности
     duration_seconds = parse_duration(duration)
     if duration_seconds is None:
         await ctx.send("Неверный формат длительности. Используйте формат: 1d, 2h, 30m, 60s.")
@@ -439,7 +432,6 @@ async def unmute(ctx, member: discord.Member):
         await ctx.send(f'{member.mention} не замьючен.')
         logging.warning(f"{member.id} is not muted")
 
-#Custom commands
 @bot.command()
 async def MrCarsen(ctx):
     message = random.choice(mr_carsen_messages)
@@ -475,18 +467,20 @@ async def пошёлтынахуй(ctx):
 
 @bot.command()
 async def рулетка(ctx):
-    died = random.randint(0, 1)
-    if died == 1:
+    died = random.randint(1, 6)
+    if died == 6:
         await ctx.reply("БАБАХ! You are dead. Not a big surprise. ☠️")
         role = discord.utils.get(ctx.guild.roles, id=MUTE_ROLE_ID)
         if role:
             await ctx.author.add_roles(role, reason="Русская рулетка")
-            await asyncio.sleep(60)  # Ожидание 1 минуты
+            logging.info(f"{ctx.author.id} lost the roulette and was muted for 1 minute")
+            logging.info(f"Random number was: {died}")
+            await asyncio.sleep(60)
             await ctx.author.remove_roles(role, reason="Время мьюта истекло")
-        logging.info(f"{ctx.author.id} lost the roulette and was muted for 1 minute")
     else:
         await ctx.reply("**·щёлк·**\nФартовый однако! 🤔")
         logging.info(f"{ctx.author.id} won the roulette")
+        logging.info(f"Random number was: {died}")
 
 @bot.command(name='help', aliases=['помощь'])
 async def помощь(ctx):
@@ -526,11 +520,10 @@ async def ХУЯБЛЯ(ctx):
     role = discord.utils.get(ctx.guild.roles, id=MUTE_ROLE_ID)
     if role:
         await ctx.author.add_roles(role, reason="Допизделся, дядя!")
-        await asyncio.sleep(60)  # Ожидание 1 минуты
+        await asyncio.sleep(60)
         await ctx.author.remove_roles(role, reason="Время мьюта истекло")
     logging.info(f"{ctx.author.id} triggered the ХУЯБЛЯ command and was muted for 1 minute")
 
-#Bomb command
 @bot.command()
 @commands.has_permissions(manage_messages=True)
 async def mute_all(ctx, *, reason=None):
@@ -655,39 +648,79 @@ async def defuse(ctx, guess: int):
     else:
         await ctx.send("No bomb has been planted.")
 
-#Subscribe roles
 class SubscribeView(View):
-    def __init__(self, ctx, role_id):
+    def __init__(self, role_id: int):
         super().__init__(timeout=None)
-        self.ctx = ctx
         self.role_id = role_id
 
-    @discord.ui.button(label="Получить роль", style=discord.ButtonStyle.green)
-    async def add_role(self, interaction: discord.Interaction, button: Button):
+        self.add_role_button = Button(
+            label="Получить роль",
+            style=discord.ButtonStyle.green,
+            custom_id=f"subscribe_add_{role_id}"
+        )
+        self.add_role_button.callback = self.add_role_callback
+
+        self.remove_role_button = Button(
+            label="Отказаться от роли",
+            style=discord.ButtonStyle.red,
+            custom_id=f"subscribe_remove_{role_id}"
+        )
+        self.remove_role_button.callback = self.remove_role_callback
+
+        self.add_item(self.add_role_button)
+        self.add_item(self.remove_role_button)
+
+    async def add_role_callback(self, interaction: discord.Interaction):
         await self.update_role(interaction, add=True)
 
-    @discord.ui.button(label="Отказаться от роли", style=discord.ButtonStyle.red)
-    async def remove_role(self, interaction: discord.Interaction, button: Button):
+    async def remove_role_callback(self, interaction: discord.Interaction):
         await self.update_role(interaction, add=False)
 
     async def update_role(self, interaction: discord.Interaction, add: bool):
-        role = discord.utils.get(interaction.guild.roles, id=self.role_id)
-        user_id = interaction.user.id
+        try:
+            role = discord.utils.get(interaction.guild.roles, id=self.role_id)
+            if role is None:
+                await interaction.response.send_message(
+                    "Роль не найдена!",
+                    ephemeral=True
+                )
+                logging.error(f"Role {self.role_id} not found in guild {interaction.guild.id}")
+                return
 
-        if add:
-            if role not in interaction.user.roles:
-                await interaction.user.add_roles(role)
-                self.add_user_to_db(user_id, self.role_id)
-                await interaction.response.send_message(f"Вы получили роль {role.name}.", ephemeral=True)
+            if add:
+                if role not in interaction.user.roles:
+                    await interaction.user.add_roles(role)
+                    self.add_user_to_db(interaction.user.id, self.role_id)
+                    await interaction.response.send_message(
+                        f"Вам выдана роль {role.name}!",
+                        ephemeral=True
+                    )
+                    logging.info(f"Added role {role.id} to user {interaction.user.id}")
+                else:
+                    await interaction.response.send_message(
+                        f"У вас уже есть роль {role.name}.",
+                        ephemeral=True
+                    )
             else:
-                await interaction.response.send_message(f"Вы уже имеете роль {role.name}.", ephemeral=True)
-        else:
-            if role in interaction.user.roles:
-                await interaction.user.remove_roles(role)
-                self.remove_user_from_db(user_id)
-                await interaction.response.send_message(f"Вы отказались от роли {role.name}.", ephemeral=True)
-            else:
-                await interaction.response.send_message(f"У вас нет роли {role.name}.", ephemeral=True)
+                if role in interaction.user.roles:
+                    await interaction.user.remove_roles(role)
+                    self.remove_user_from_db(interaction.user.id)
+                    await interaction.response.send_message(
+                        f"Роль {role.name} удалена.",
+                        ephemeral=True
+                    )
+                    logging.info(f"Removed role {role.id} from user {interaction.user.id}")
+                else:
+                    await interaction.response.send_message(
+                        f"У вас нет роли {role.name}.",
+                        ephemeral=True
+                    )
+        except Exception as e:
+            logging.error(f"Error in SubscribeView: {str(e)}", exc_info=True)
+            await interaction.response.send_message(
+                "Произошла ошибка!",
+                ephemeral=True
+            )
 
     def add_user_to_db(self, user_id, role_id):
         conn = sqlite3.connect('bot_data.db')
@@ -704,55 +737,56 @@ class SubscribeView(View):
         conn.close()
 
 @bot.command()
-@commands.has_permissions(manage_messages=True)
+@commands.has_permissions(manage_roles=True)
 async def subscribe(ctx):
     role_id = YT_SUBSCRIBER_ROLE_ID
     role = discord.utils.get(ctx.guild.roles, id=role_id)
-
+    
     if not role:
-        await ctx.send("Роль не найдена. Убедитесь, что ID роли указан корректно.")
+        await ctx.send("Роль для подписки не найдена!")
         return
 
-    view = SubscribeView(ctx, role_id)
+    view = SubscribeView(role_id)
     embed = discord.Embed(
-        title=f"Подписка на роль {role.name}",
-        description=f"Чтобы получать уведомления о новом контенте на YouTube-канале можно получить роль {role.name}. Выберите действие ниже."
+        title=f"Подписка на уведомления {role.name}",
+        description=(
+            f"Нажмите кнопку ниже, чтобы получать или отключить уведомления "
+            f"для роли {role.mention}\n\n"
+        ),
+        color=role.color
     )
-    message = await ctx.send(embed=embed, view=view)
-    view.message = message
+    await ctx.send(embed=embed, view=view)
 
 @bot.command()
-@commands.has_permissions(manage_messages=True)
+@commands.has_permissions(manage_roles=True)
 async def subscribesecond(ctx):
     role_id = SEC_YT_SUBSCRIBER_ROLE_ID
     role = discord.utils.get(ctx.guild.roles, id=role_id)
-
+    
     if not role:
-        await ctx.send("Роль не найдена. Убедитесь, что ID роли указан корректно.")
+        await ctx.send("❌ Роль для подписки не найдена!")
         return
 
-    view = SubscribeView(ctx, role_id)
+    view = SubscribeView(role_id)
     embed = discord.Embed(
-        title=f"Подписка на роль {role.name}",
-        description=f"Чтобы получать уведомления о новом контенте на втором YouTube-канале можно получить роль {role.name}. Выберите действие ниже."
+        title=f"Подписка на уведомления {role.name}",
+        description=(
+            f"Нажмите кнопку ниже, чтобы получать или отключить уведомления "
+            f"для роли {role.mention}\n\n"
+        ),
+        color=role.color
     )
-    message = await ctx.send(embed=embed, view=view)
-    view.message = message
-
-# Admin commands
+    await ctx.send(embed=embed, view=view)
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
 async def warn(ctx, member: discord.Member, *, reason: str = "Не указано"):
-    # Удаляем предупреждения старше 24 часов
     warnings_list = get_warnings(member.id)
     warnings_list = [w for w in warnings_list if datetime.fromisoformat(w['timestamp']) > datetime.now() - timedelta(days=1)]
 
-    # Добавляем новое предупреждение
     add_warning(member.id, reason)
     warnings_list.append({'timestamp': datetime.now().isoformat(), 'reason': reason})
 
-    # Проверяем количество предупреждений за последние 24 часа
     recent_warnings = [w for w in warnings_list if datetime.fromisoformat(w['timestamp']) > datetime.now() - timedelta(days=1)]
     if len(recent_warnings) >= 3:
         await mute(ctx, member, '24h', reason="3 предупреждения за 24 часа")
@@ -760,6 +794,30 @@ async def warn(ctx, member: discord.Member, *, reason: str = "Не указан�
     else:
         await ctx.send(f'{member.mention} получил предупреждение. Причина: {reason}.')
         logging.info(f"Warned {member.id}. Reason: {reason}")
+
+async def send_message_to_channel(channel, message, file_path=None):
+    try:
+        if file_path:
+            file = discord.File(file_path)
+            await channel.send(message, file=file)
+            print(f"Сообщение с файлом успешно отправлено в канал {channel.name}")
+        else:
+            await channel.send(message)
+            print(f"Сообщение успешно отправлено в канал {channel.name}")
+    except Exception as e:
+        print(f"Ошибка при отправке сообщения: {e}")
+
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def send_to_channel(ctx, channel: discord.TextChannel, *, message):
+    if ctx.message.attachments:
+        for attachment in ctx.message.attachments:
+            await attachment.save(attachment.filename)
+            await send_message_to_channel(channel, message, attachment.filename)
+            import os
+            os.remove(attachment.filename)
+    else:
+        await send_message_to_channel(channel, message)
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
@@ -778,7 +836,7 @@ async def warnings(ctx, member: discord.Member):
     warnings_list = get_warnings(member.id)
     if warnings_list:
         warn_messages = [f"{datetime.fromisoformat(w['timestamp']).strftime('%d-%m-%Y %H-%M')}: {w['reason']}" for w in warnings_list]
-        warn_messages.reverse()  # Показываем предупреждения в порядке от новых к старым
+        warn_messages.reverse()
         await ctx.send(f"Предупреждения для {member.mention}:\n" + "\n".join(warn_messages))
         logging.info(f"Listed warnings for {member.id}")
     else:
@@ -845,8 +903,6 @@ async def warnings_error(ctx, error):
         await ctx.send("Произошла ошибка при попытке отображения предупреждений пользователя.")
         logging.error(f"Error in warnings command: {error}")
 
-# Mute timings parsing
-
 def parse_duration(duration: str) -> int:
     if duration.endswith('d'):
         return int(duration[:-1]) * 86400
@@ -858,8 +914,6 @@ def parse_duration(duration: str) -> int:
         return int(duration[:-1])
     else:
         return None
-
-# YouTube API setup
 
 def get_youtube_service(api_key):
     return googleapiclient.discovery.build('youtube', 'v3', developerKey=api_key)
@@ -916,7 +970,6 @@ async def check_youtube_channels_manual(ctx):
     for api_key in YOUTUBE_API_KEYS:
         youtube = get_youtube_service(api_key)
         try:
-            # Check first YouTube channel
             request = youtube.search().list(
                 part="snippet",
                 channelId=YOUTUBE_CHANNEL_ID_1,
@@ -934,7 +987,6 @@ async def check_youtube_channels_manual(ctx):
                     set_last_video_id(YOUTUBE_CHANNEL_ID_1, video_id)
                     logging.info(f"New video detected on channel {YOUTUBE_CHANNEL_ID_1}: {video_url}")
 
-            # Check second YouTube channel
             request = youtube.search().list(
                 part="snippet",
                 channelId=YOUTUBE_CHANNEL_ID_2,
@@ -953,7 +1005,7 @@ async def check_youtube_channels_manual(ctx):
                     logging.info(f"New video detected on channel {YOUTUBE_CHANNEL_ID_2}: {video_url}")
             await ctx.send("YouTube channels checked successfully.")
             logging.info("YouTube channels checked successfully")
-            break  # Exit the loop if the request was successful
+            break
         except googleapiclient.errors.HttpError as e:
             if e.resp.status == 403 and 'quotaExceeded' in str(e):
                 logging.warning(f"Quota exceeded for API key: {api_key}")
