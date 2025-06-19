@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 import os
 import logging
 import sqlite3
-import requests
 from randomlist import mr_carsen_messages, gold_fund_messages
 
 log_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -47,9 +46,6 @@ YOUTUBE_CHANNEL_ID_2 = os.getenv("YOUTUBE_CHANNEL_ID_2")
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 YT_SUBSCRIBER_ROLE_ID = int(os.getenv("YT_SUBSCRIBER_ROLE_ID"))
 SEC_YT_SUBSCRIBER_ROLE_ID = int(os.getenv("SEC_YT_SUBSCRIBER_ROLE_ID"))
-TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
-TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
-TWITCH_CHANNEL_ID = int(os.getenv("TWITCH_CHANNEL_ID"))
 USER_ID = int(os.getenv("USER_ID"))
 
 def create_tables():
@@ -78,18 +74,6 @@ def create_tables():
                   user_id INTEGER PRIMARY KEY,
                   role_id INTEGER
                )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS active_streams (
-                  channel_id TEXT PRIMARY KEY,
-                  stream_url TEXT,
-                  notification_sent BOOLEAN
-               )''')
-
-    c.execute("PRAGMA table_info(active_streams)")
-    columns = c.fetchall()
-    column_names = [column[1] for column in columns]
-
-    if 'notification_sent' not in column_names:
-        c.execute('''ALTER TABLE active_streams ADD COLUMN notification_sent BOOLEAN''')
 
     conn.commit()
     conn.close()
@@ -187,127 +171,6 @@ def get_role_users(role_id):
     conn.close()
     return [user[0] for user in users]
 
-def get_active_stream(channel_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute("SELECT stream_url, notification_sent FROM active_streams WHERE channel_id = ?", (channel_id,))
-    result = c.fetchone()
-    conn.close()
-    return result if result else (None, False)
-
-def set_active_stream(channel_id, stream_url, notification_sent=False):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO active_streams (channel_id, stream_url, notification_sent) VALUES (?, ?, ?)", (channel_id, stream_url, notification_sent))
-    conn.commit()
-    conn.close()
-
-def remove_active_stream(channel_id):
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute("DELETE FROM active_streams WHERE channel_id = ?", (channel_id,))
-    conn.commit()
-    conn.close()
-
-def get_twitch_access_token(client_id, client_secret):
-    url = 'https://id.twitch.tv/oauth2/token'
-    params = {
-        'client_id': client_id,
-        'client_secret': client_secret,
-        'grant_type': 'client_credentials'
-    }
-    response = requests.post(url, params=params)
-    response.raise_for_status()
-    return response.json()['access_token']
-
-async def send_dm_notification(user, ctx, role_id_1, role_id_2, stream_url):
-    view = RoleSelectionView(ctx, role_id_1, role_id_2, stream_url)
-    message = await user.send(
-        "Обнаружен стрим на Twitch. Какую роль следует пинговать?",
-        view=view
-    )
-    view.message = message
-
-class RoleSelectionView(View):
-    def __init__(self, ctx, role_id_1, role_id_2, stream_url):
-        super().__init__(timeout=30)
-        self.ctx = ctx
-        self.role_id_1 = role_id_1
-        self.role_id_2 = role_id_2
-        self.stream_url = stream_url
-        self.value = None
-        self.message = None
-        self.notification_sent = False
-
-    @discord.ui.button(label="YouTube Subscriber", style=discord.ButtonStyle.green)
-    async def select_role_1(self, interaction: discord.Interaction, button: Button):
-        await self.select_role(interaction, self.role_id_1)
-
-    @discord.ui.button(label="Second YT Sub", style=discord.ButtonStyle.red)
-    async def select_role_2(self, interaction: discord.Interaction, button: Button):
-        await self.select_role(interaction, self.role_id_2)
-
-    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.gray)
-    async def cancel(self, interaction: discord.Interaction, button: Button):
-        self.value = None
-        self.stop()
-        await interaction.response.send_message(f"Отправка уведомления отменена.", ephemeral=True)
-        if self.message:
-            await self.message.delete()
-
-    async def select_role(self, interaction: discord.Interaction, role_id):
-        self.value = role_id
-        self.stop()
-        await interaction.response.send_message(f"Вы выбрали роль для уведомления.", ephemeral=True)
-        if self.message:
-            await self.message.delete()
-
-async def check_twitch_streams(ctx, client_id, client_secret, twitch_channel_id, notification_channel_id, user_id):
-    token = get_twitch_access_token(client_id, client_secret)
-    headers = {
-        'Client-ID': client_id,
-        'Authorization': f'Bearer {token}'
-    }
-    url = f'https://api.twitch.tv/helix/streams?user_id={twitch_channel_id}'
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    data = response.json()
-
-    if data['data']:
-        stream = data['data'][0]
-        stream_url = f"https://www.twitch.tv/{stream['user_name']}"
-        active_stream, notification_sent = get_active_stream(twitch_channel_id)
-
-        if not active_stream or active_stream != stream_url:
-            user = bot.get_user(user_id)
-            if user:
-                view = RoleSelectionView(ctx, YT_SUBSCRIBER_ROLE_ID, SEC_YT_SUBSCRIBER_ROLE_ID, stream_url)
-                await user.send(
-                    "Обнаружен стрим на Twitch. Какую роль следует пинговать?",
-                    view=view
-                )
-                await view.wait()
-                if view.value:
-                    channel = bot.get_channel(notification_channel_id)
-                    if channel and not notification_sent:
-                        await channel.send(f"<@&{view.value}>\n\nНачалась трансляция на Twitch!\nСмотрите здесь: {stream_url}")
-                        logging.info(f"Live stream detected on Twitch: {stream_url}")
-                        set_active_stream(twitch_channel_id, stream_url, notification_sent=True)
-                    else:
-                        logging.error("Notification channel not found")
-                else:
-                    logging.warning("No role selected for notification")
-            else:
-                logging.error("User not found")
-    else:
-        remove_active_stream(twitch_channel_id)
-        logging.info("No live streams found on Twitch")
-
-@tasks.loop(minutes=1)
-async def check_twitch_streams_task():
-    ctx = None
-    await check_twitch_streams(ctx, TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET, TWITCH_CHANNEL_ID, NOTIFICATION_CHANNEL_ID, USER_ID)
-
 @bot.event
 async def on_ready():
     logging.info(f'Logged in as {bot.user}')
@@ -316,7 +179,6 @@ async def on_ready():
     bot.add_view(SubscribeView(SEC_YT_SUBSCRIBER_ROLE_ID))
     
     check_mutes.start()
-#   check_twitch_streams_task.start()
 
 @bot.event
 async def on_message(message):
