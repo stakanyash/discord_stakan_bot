@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import os
 import logging
 import sqlite3
+import sys
 from randomlist import mr_carsen_messages, gold_fund_messages
 
 log_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -178,7 +179,8 @@ async def on_ready():
     bot.add_view(SubscribeView(YT_SUBSCRIBER_ROLE_ID))
     bot.add_view(SubscribeView(SEC_YT_SUBSCRIBER_ROLE_ID))
     
-    check_mutes.start()
+    if not check_mutes.is_running():
+        check_mutes.start()
 
 @bot.event
 async def on_message(message):
@@ -432,6 +434,57 @@ class ConfirmView(View):
         if interaction.user == self.ctx.author:
             self.value = False
             self.stop()
+
+class AdminMenuView(View):
+    def __init__(self, ctx):
+        super().__init__(timeout=None)
+        self.ctx = ctx
+
+    @discord.ui.button(label="Проверить YouTube каналы", style=discord.ButtonStyle.blurple, custom_id="check_yt_btn")
+    async def check_yt_button(self, interaction: discord.Interaction, button: Button):
+        if interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message("Проверяю YouTube каналы...", ephemeral=True)
+            await check_youtube_channels_manual(interaction)
+        else:
+            await interaction.response.send_message("У вас нет прав для этого действия.", ephemeral=True)
+
+    @discord.ui.button(label="Обновить ID последних видео", style=discord.ButtonStyle.green, custom_id="update_ids_btn")
+    async def update_ids_button(self, interaction: discord.Interaction, button: Button):
+        if interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message("Обновляю ID последних видео...", ephemeral=True)
+            ctx = await bot.get_context(interaction.message)
+            await getvideosid(ctx)
+        else:
+            await interaction.response.send_message("У вас нет прав для этого действия.", ephemeral=True)
+
+    @discord.ui.button(label="Перезагрузить бота", style=discord.ButtonStyle.red, custom_id="restart_btn")
+    async def restart_button(self, interaction: discord.Interaction, button: Button):
+        if interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message("Перезагрузка бота...", ephemeral=True)
+            logging.info(f"Bot restarting by {interaction.user}")
+            await asyncio.sleep(2)
+            os.execv(sys.executable, ['python'] + sys.argv)
+        else:
+            await interaction.response.send_message("У вас нет прав для этого действия.", ephemeral=True)
+
+
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def adminmenu(ctx):
+    embed = discord.Embed(
+        title="Панель администратора",
+        description=(
+            "**Функции управления ботом:**\n"
+            "Проверить YouTube каналы — вручную запустить проверку новых видео.\n"
+            "Обновить ID последних видео — обновляет сохранённые ID последних роликов.\n"
+            "Перезагрузить бота — безопасно перезапускает процесс (если поддерживается средой).\n"
+        ),
+        color=discord.Color.gold()
+    )
+    view = AdminMenuView(ctx)
+    await ctx.send(embed=embed, view=view)
+    logging.info(f"Admin menu opened by {ctx.author}")
+
 
 @bot.command()
 async def bomb(ctx):
